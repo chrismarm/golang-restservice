@@ -13,11 +13,12 @@ import (
 )
 
 type DiveLocation struct {
-	Id    string `json:"_id,omitempty"`
-	Name  string `json:"name"`
-	Lat   string `json:"lat,omitempty"`
-	Lon   string `json:"lon,omitempty"`
-	Depth string `json:"depth,omitempty"`
+	Id       string   `json:"_id,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Lat      string   `json:"lat,omitempty"`
+	Lon      string   `json:"lon,omitempty"`
+	Depth    string   `json:"depth,omitempty"`
+	Location Location `json:"location,omitempty"`
 }
 
 // Simulates in-memory cache from database, that is a json file
@@ -28,7 +29,12 @@ var divesIndex map[string]DiveLocation
 
 const filename = "dive_locations.json"
 
+var mapsApiKey string
+
 func main() {
+	// Google Maps API key specified as a command line argument
+	mapsApiKey = os.Args[1]
+
 	// Database (json file) initial retrieval
 	loadDatabase()
 
@@ -43,7 +49,7 @@ func main() {
 
 func getData() []byte {
 	var jsonBlob = []byte(`
-        [{"_id":"1","name":"San Andres","lat":"36.0144638","lon":"-5.6090361","depth":"34"},{"_id":"32eaa763-3eeb-4616-bbd8-333c3756f7f5","name":"Calderas","lat":"222","lon":"333","depth":"20"}]
+        [{"_id":"1","name":"San Andres","lat":"36.0144638","lon":"-5.6090361","depth":"34"},{"_id":"32eaa763-3eeb-4616-bbd8-333c3756f7f5","name":"Calderas","lat":"36.001591","lon":"-5.613323","depth":"20"}]
     `)
 	return jsonBlob
 }
@@ -51,7 +57,7 @@ func getData() []byte {
 func getDataFromFile() []byte {
 	jsonFile, err := os.Open(filename)
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal(err)
 	}
 	defer jsonFile.Close()
 
@@ -60,7 +66,7 @@ func getDataFromFile() []byte {
 }
 
 func loadDatabase() {
-	jsonBlob := getDataFromFile()
+	jsonBlob := getData()
 
 	json.Unmarshal(jsonBlob, &dives)
 	divesIndex = make(map[string]DiveLocation)
@@ -69,13 +75,15 @@ func loadDatabase() {
 	for i := 0; i < len(dives); i++ {
 		currentDive := dives[i]
 		diveName := currentDive.Name
-		divesIndex[diveName] = currentDive
 		fmt.Println("---Dive #" + strconv.Itoa(i+1))
 		fmt.Println("Id: " + currentDive.Id)
 		fmt.Println("Name: " + diveName)
 		fmt.Println("Lat: " + currentDive.Lat)
 		fmt.Println("Lon: " + currentDive.Lon)
 		fmt.Println("Depth: " + currentDive.Depth)
+		completeDive(&currentDive)
+		dives[i] = currentDive
+		divesIndex[diveName] = currentDive
 	}
 }
 
@@ -107,6 +115,18 @@ func generateId() string {
 		result = string(uuid[:len(uuid)-1])
 	}
 	return result
+}
+
+// Pointer parameter to change values in dives
+func completeDive(dive *DiveLocation) {
+	if dive.Id == "" {
+		dive.Id = generateId()
+	}
+	currentLoc := dive.Location
+	if currentLoc.GlobalCode == "" {
+		location := ReverseGeocode(dive.Lat, dive.Lon, mapsApiKey)
+		dive.Location = location
+	}
 }
 
 // ---- API methods
@@ -146,11 +166,12 @@ func CreateOrUpdateDive(w http.ResponseWriter, r *http.Request) {
 	divesIndex[diveName] = newDive
 	if !present {
 		// New dive with UUID generation
-		newDive.Id = generateId()
+		completeDive(&newDive)
 		dives = append(dives, newDive)
 		json.NewEncoder(w).Encode(dives)
 	} else {
 		// Update dive
+		completeDive(&newDive)
 		index := getDiveIndexInCache(diveName)
 		dives[index] = newDive
 		json.NewEncoder(w).Encode(dives)
