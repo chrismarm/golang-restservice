@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
+	"github.com/hokaccha/go-prettyjson"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -76,12 +77,9 @@ func loadDatabase() {
 		currentDive := dives[i]
 		diveName := currentDive.Name
 		fmt.Println("---Dive #" + strconv.Itoa(i+1))
-		fmt.Println("Id: " + currentDive.Id)
-		fmt.Println("Name: " + diveName)
-		fmt.Println("Lat: " + currentDive.Lat)
-		fmt.Println("Lon: " + currentDive.Lon)
-		fmt.Println("Depth: " + currentDive.Depth)
 		completeDive(&currentDive)
+		s, _ := prettyjson.Marshal(currentDive)
+		fmt.Println(string(s))
 		dives[i] = currentDive
 		divesIndex[diveName] = currentDive
 	}
@@ -129,10 +127,15 @@ func completeDive(dive *DiveLocation) {
 	}
 }
 
+func writeDives(w http.ResponseWriter) {
+	formattedDives, _ := prettyjson.Marshal(dives)
+	w.Write(formattedDives)
+}
+
 // ---- API methods
 
 func GetDives(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(dives)
+	writeDives(w)
 }
 
 func GetDive(w http.ResponseWriter, r *http.Request) {
@@ -144,7 +147,8 @@ func GetDive(w http.ResponseWriter, r *http.Request) {
 		// Empty response as there is no dive with that name
 		json.NewEncoder(w).Encode(&DiveLocation{})
 	} else {
-		json.NewEncoder(w).Encode(existingDive)
+		formattedDive, _ := prettyjson.Marshal(existingDive)
+		w.Write(formattedDive)
 	}
 }
 
@@ -168,13 +172,13 @@ func CreateOrUpdateDive(w http.ResponseWriter, r *http.Request) {
 		// New dive with UUID generation
 		completeDive(&newDive)
 		dives = append(dives, newDive)
-		json.NewEncoder(w).Encode(dives)
+		writeDives(w)
 	} else {
 		// Update dive
 		completeDive(&newDive)
 		index := getDiveIndexInCache(diveName)
 		dives[index] = newDive
-		json.NewEncoder(w).Encode(dives)
+		writeDives(w)
 	}
 	updateDatabase()
 }
@@ -191,7 +195,7 @@ func DeleteDive(w http.ResponseWriter, r *http.Request) {
 		delete(divesIndex, diveName)
 		index := getDiveIndexInCache(diveName)
 		dives = append(dives[:index], dives[index+1:]...)
-		json.NewEncoder(w).Encode(dives)
+		writeDives(w)
 	}
 	updateDatabase()
 }
